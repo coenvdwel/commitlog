@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="Content-Type" content="text/html">
+		<link rel="shortcut icon" href="favicon.ico" type="image/x-icon" />
+		
+		<title>Commit Log</title>
+		
+		<link rel="stylesheet" type="text/css" href="css/styles.css">
+		<script type="text/javascript" src="js/jquery-1.10.2.min.js"></script>
+		
+		<script type="text/javascript">
+			$(function()
+			{
+				$("document").ready(function()
+				{
+					var getAuth = new RegExp("[\?&]auth=([^&#]*)").exec(window.location.href);
+					if(getAuth)
+					{
+						getAuth = atob(getAuth[1]).split(":");
+						
+						$("#username").val(getAuth[0]);
+						$("#password").val(getAuth[1]);
+						$("#submit").click();
+					}
+				});
+				
+				$("#submit").on("click", function(e)
+				{
+					e.preventDefault();
+					$("#data").html("<div id=\"loader\"><img src=\"css/loader.gif\" alt=\"loading...\"></div>");
+
+					var username = $("#username").val();
+					var password = $("#password").val();
+					var days = parseInt($("#days").val());
+					
+					var getAuth = new RegExp("[\?&]auth=([^&#]*)").exec(window.location.href);
+					var link = window.location.href + ((getAuth == null) ? "?auth=" + btoa(username + ":" + password) : "");
+					$("#auth").attr("href", link);
+					$("#auth").text(link);
+					
+					var since = new Date();
+					since.setDate(since.getDate() - days);
+					
+					request({ uri: "https://api.github.com/user/repos?affiliation=owner".uri(), password: password }, function(repos)
+					{
+						if(repos == null)
+						{
+							$("#data").html("<h2>Github down? Wut?</h2>");
+							return;
+						}
+						
+						if(repos.message != null)
+						{
+							$("#data").html("<h2>"+repos.message+"</h2>");
+							return;
+						}
+						
+						var result = [];
+						var requests = 0;
+						
+						repos.forEach(function(repo, i)
+						{
+							var branchParams = 
+							{
+								uri: "https://api.github.com/repos/{0}/{1}/branches?per_page=100".uri(username, repo.name),
+								password: password,
+								data: repo.name
+							};
+							
+							request(branchParams, function(branches, repoName)
+							{
+								requests += branches.length;
+								
+								branches.forEach(function(branch, j)
+								{
+									var commitParams =
+									{
+										uri: "https://api.github.com/repos/{0}/{1}/commits?per_page=100&since={2}&author={0}&sha={3}".uri(username, repoName, since.toJSON(), branch.commit.sha),
+										password: password,
+										data: branch.name
+									};
+								
+									request(commitParams, function(commits, branchName)
+									{
+										commits.forEach(function(commit, k)
+										{
+											result.push({
+												date: commit.commit.author.date,
+												message: commit.commit.message,
+												branch: branchName,
+												repo: repoName,
+												url: commit.html_url
+											});
+										});
+										
+										requests--;
+										if (requests <= 0) render(result);
+									});
+								});
+							});
+						});
+					});
+				});
+
+				function request(params, callback)
+				{
+					$.ajax({
+						url: encodeURI(params.uri),
+						headers: {
+							"Authorization": "Basic " + params.password
+						},
+						complete: function(xhr)
+						{
+							callback.call(null, xhr.responseJSON, params.data);
+						}
+					});
+				}
+				
+				String.prototype.uri = function()
+				{
+					var s = this, i = arguments.length;
+					while (i--) s = s.replace(new RegExp('\\{' + i + '\\}', 'gm'), encodeURIComponent(arguments[i]));
+					return s;
+				};
+				
+				function getColorStyle(str)
+				{
+					var hash = 7;
+					var bg = '';
+					
+					for (var i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+					for (var i = 0; i < 3; i++) bg += ('00' + ((hash >> (i * 8)) & 0xFF).toString(16)).substr(-2);
+					
+					var fg = ("000000" + (0xFFFFFF ^ (parseInt(bg, 16))).toString(16)).slice(-6);
+					
+					return "background-color: #"+bg+"; color: #"+fg;
+				}
+				
+				function render(result)
+				{
+					var options = { weekday: "long", year: "numeric", month: "long", day: "numeric" };
+					
+					result.sort(function compare(a, b)
+					{
+						if (a.date < b.date) return 1;
+						if (a.date > b.date) return -1;
+						return 0;
+					});
+					
+					var lastDay = "";
+					var output = "";
+					
+					result.forEach(function(r, i)
+					{
+						var date = new Date(r.date);
+						if(lastDay != date.toLocaleString("nl-NL", options))
+						{
+							lastDay = date.toLocaleString("nl-NL", options);
+							output += "<h2>"+lastDay+"</h2>";
+						}
+						
+						output += "<div class=\"commit\">";
+						output += "  <span class=\"repo\" title=\""+r.repo+"\" style=\""+getColorStyle(r.repo)+"\">"+r.repo+"</span>";
+						output += "  <span class=\"branch\" title=\""+r.branch+"\" style=\""+getColorStyle(r.repo + r.branch)+"\">"+r.branch+"</span>";
+						output += "  <span class=\"time\"><a href=\""+r.url+"\">"+date.toLocaleTimeString("nl-NL")+"</a></span>";
+						output += "  <span class=\"message\" title=\""+r.message+"\">"+r.message.split("\n")[0]+"</span>";
+						output += "  <br class=\"clear\" />";
+						output += "</div>";
+					});
+					
+					$("#data").html(output);
+				}
+			});
+		</script>
+	</head>
+
+	<body>
+	
+		<div id="header"><a id="auth" href="#">#</a></div>
+		
+		<div id="container">
+		
+			<h1>Commit Log</h1>
+			
+			<form>
+				<input type="text" name="days" id="days" placeholder="History days" value="90">
+				<input type="text" name="username" id="username" placeholder="Github username">
+				<input type="password" name="password" id="password" placeholder="Github password">
+				<input type="submit" id="submit" class="tubular-play" value="Get" />
+			</form>
+
+			<div id="data"></div>
+			
+			<div id="footer">Coen Software B.V.</div>
+			
+		</div>
+		
+	</body>
+</html>
