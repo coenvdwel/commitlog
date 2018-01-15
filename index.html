@@ -36,14 +36,16 @@
 					var days = parseInt($("#days").val());
 					
 					var getAuth = new RegExp("[\?&]auth=([^&#]*)").exec(window.location.href);
-					var link = window.location.href + ((getAuth == null) ? "?auth=" + btoa(username + ":" + password) : "");
+					var auth = btoa(username + ":" + password);
+					var link = window.location.href + ((getAuth == null) ? "?auth=" + auth : "");
+					
 					$("#auth").attr("href", link);
 					$("#auth").text(link);
 					
 					var since = new Date();
 					since.setDate(since.getDate() - days);
 					
-					request({ uri: "https://api.github.com/user/repos?affiliation=owner".uri(), password: password }, function(repos)
+					request({ uri: "https://api.github.com/user/repos?affiliation=owner".uri(), auth: auth }, function(repos)
 					{
 						if(repos == null)
 						{
@@ -65,7 +67,7 @@
 							var branchParams = 
 							{
 								uri: "https://api.github.com/repos/{0}/{1}/branches?per_page=100".uri(username, repo.name),
-								password: password,
+								auth: auth,
 								data: repo.name
 							};
 							
@@ -78,7 +80,7 @@
 									var commitParams =
 									{
 										uri: "https://api.github.com/repos/{0}/{1}/commits?per_page=100&since={2}&author={0}&sha={3}".uri(username, repoName, since.toJSON(), branch.commit.sha),
-										password: password,
+										auth: auth,
 										data: branch.name
 									};
 								
@@ -109,7 +111,7 @@
 					$.ajax({
 						url: encodeURI(params.uri),
 						headers: {
-							"Authorization": "Basic " + params.password
+							"Authorization": "Basic " + params.auth
 						},
 						complete: function(xhr)
 						{
